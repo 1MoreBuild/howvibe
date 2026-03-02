@@ -1,0 +1,16 @@
+diff --git a/node_modules/@steipete/sweet-cookie/dist/providers/chromeSqlite/shared.js b/node_modules/@steipete/sweet-cookie/dist/providers/chromeSqlite/shared.js
+index 59ef6e4..96357fc 100644
+--- a/node_modules/@steipete/sweet-cookie/dist/providers/chromeSqlite/shared.js
++++ b/node_modules/@steipete/sweet-cookie/dist/providers/chromeSqlite/shared.js
+@@ -185,7 +185,10 @@ async function readChromiumMetaVersion(dbPath) {
+ async function readChromeRows(dbPath, where) {
+     const sqliteKind = isBunRuntime() ? 'bun' : 'node';
+     const sqliteLabel = sqliteKind === 'bun' ? 'bun:sqlite' : 'node:sqlite';
+-    const sql = `SELECT name, value, host_key, path, expires_utc, samesite, encrypted_value, ` +
++    const expiresCol = sqliteKind === 'node' && !supportsReadBigInts()
++        ? 'CAST(expires_utc AS TEXT) AS expires_utc'
++        : 'expires_utc';
++    const sql = `SELECT name, value, host_key, path, ${expiresCol}, samesite, encrypted_value, ` +
+         `is_secure AS is_secure, is_httponly AS is_httponly ` +
+         `FROM cookies WHERE (${where}) ORDER BY expires_utc DESC;`;
+     const result = await queryNodeOrBun({ kind: sqliteKind, dbPath, sql });
