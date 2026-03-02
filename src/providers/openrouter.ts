@@ -34,7 +34,10 @@ async function fetchActivity(managementKey: string, dateRange: DateRange): Promi
       signal: AbortSignal.timeout(15_000),
     });
 
-    if (!res.ok) continue;
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`HTTP ${res.status} for ${date}: ${text}`);
+    }
 
     const body = (await res.json()) as Record<string, unknown>;
     const data = body.data;
