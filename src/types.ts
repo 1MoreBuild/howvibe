@@ -27,6 +27,22 @@ export type UsageSummary = {
   totalCostUSD: number;
 };
 
+export type GroupedUsageRow = {
+  label: string; // e.g. "2026-02-28" or "2026-02"
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUSD: number;
+};
+
+export type GroupedUsageSummary = {
+  title: string;
+  rows: GroupedUsageRow[];
+  errors: string[];
+};
+
 export type DateRange = {
   since: Date;
   until: Date;

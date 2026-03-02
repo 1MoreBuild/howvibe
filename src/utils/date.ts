@@ -50,3 +50,41 @@ export function formatDate(date: Date): string {
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+/**
+ * Generate an array of single-day DateRanges for each day in the given range.
+ */
+export function splitIntoDays(range: DateRange): { label: string; range: DateRange }[] {
+  const days: { label: string; range: DateRange }[] = [];
+  const cursor = new Date(range.since);
+  while (cursor <= range.until) {
+    const since = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), 0, 0, 0, 0);
+    const until = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), 23, 59, 59, 999);
+    days.push({ label: formatDate(since), range: { since, until } });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return days;
+}
+
+/**
+ * Generate an array of month-long DateRanges for each month in the given range.
+ */
+export function splitIntoMonths(range: DateRange): { label: string; range: DateRange }[] {
+  const months: { label: string; range: DateRange }[] = [];
+  const cursor = new Date(range.since.getFullYear(), range.since.getMonth(), 1);
+  const endMonth = new Date(range.until.getFullYear(), range.until.getMonth(), 1);
+
+  while (cursor <= endMonth) {
+    const y = cursor.getFullYear();
+    const m = cursor.getMonth();
+    // Clamp bucket boundaries to the requested window
+    const bucketStart = new Date(y, m, 1, 0, 0, 0, 0);
+    const bucketEnd = new Date(y, m + 1, 0, 23, 59, 59, 999); // last day of month
+    const since = bucketStart < range.since ? range.since : bucketStart;
+    const until = bucketEnd > range.until ? range.until : bucketEnd;
+    const label = `${y}-${String(m + 1).padStart(2, '0')}`;
+    months.push({ label, range: { since, until } });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return months;
+}

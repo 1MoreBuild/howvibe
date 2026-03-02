@@ -1,5 +1,5 @@
 import type { HowvibeConfig } from './config.js';
-import type { DateRange, ProviderUsageResult, UsageSummary } from './types.js';
+import type { DateRange, ProviderUsageResult, UsageSummary, GroupedUsageRow, GroupedUsageSummary } from './types.js';
 import type { UsageProvider } from './providers/interface.js';
 import { formatDate } from './utils/date.js';
 
@@ -35,4 +35,56 @@ export async function aggregateUsage(
     providers: results,
     totalCostUSD,
   };
+}
+
+/**
+ * Aggregate usage across periods (days or months).
+ * Calls all providers for each period and sums cross-provider totals.
+ */
+export async function aggregateGrouped(
+  providers: UsageProvider[],
+  periods: { label: string; range: DateRange }[],
+  config: HowvibeConfig,
+  title: string,
+): Promise<GroupedUsageSummary> {
+  const errorSet = new Set<string>();
+  const rows: GroupedUsageRow[] = [];
+
+  for (const period of periods) {
+    const summary = await aggregateUsage(providers, period.range, config);
+
+    // Collect errors from all periods, deduplicated
+    for (const p of summary.providers) {
+      if (p.errors?.length) {
+        for (const e of p.errors) errorSet.add(e);
+      }
+    }
+
+    let input = 0, output = 0, reasoning = 0, cacheRead = 0, cacheCreate = 0, cost = 0;
+    for (const p of summary.providers) {
+      for (const m of p.models) {
+        input += m.inputTokens;
+        output += m.outputTokens;
+        reasoning += m.reasoningTokens;
+        cacheRead += m.cacheReadTokens;
+        cacheCreate += m.cacheCreationTokens;
+        cost += m.costUSD;
+      }
+    }
+
+    // Only include rows that have data
+    if (input + output + reasoning + cacheRead + cacheCreate > 0) {
+      rows.push({
+        label: period.label,
+        inputTokens: input,
+        outputTokens: output,
+        reasoningTokens: reasoning,
+        cacheReadTokens: cacheRead,
+        cacheCreationTokens: cacheCreate,
+        costUSD: cost,
+      });
+    }
+  }
+
+  return { title, rows, errors: [...errorSet] };
 }

@@ -1,10 +1,12 @@
+import process from 'node:process';
 import { Command } from 'commander';
 import { loadConfig } from './config.js';
 import { getProviders } from './providers/registry.js';
-import { aggregateUsage } from './aggregator.js';
-import { buildDateRange, getTodayRange } from './utils/date.js';
+import { aggregateUsage, aggregateGrouped } from './aggregator.js';
+import { buildDateRange, getTodayRange, splitIntoDays, splitIntoMonths } from './utils/date.js';
 import { formatTable } from './formatters/table.js';
 import { formatJSON } from './formatters/json.js';
+import { formatGroupedTable, formatGroupedJSON } from './formatters/grouped-table.js';
 import type { DateRange } from './types.js';
 
 type GlobalOpts = {
@@ -34,19 +36,23 @@ export function createProgram(): Command {
     .description('Track AI coding tool token usage and costs')
     .version('0.1.0')
     .option('--json', 'Output as JSON')
-    .option('--provider <name>', 'Only show a specific provider')
+    .option('--provider <name>', 'Only show a specific provider (claude-code, codex, cursor, openrouter)')
     .option('--since <date>', 'Start date (YYYY-MM-DD)')
     .option('--until <date>', 'End date (YYYY-MM-DD)');
 
-  // Default action (no subcommand) = today
+  // No subcommand and no options → show help
   program.action(async (opts: GlobalOpts) => {
+    if (!opts.json && !opts.provider && !opts.since && !opts.until) {
+      program.help();
+      return;
+    }
     const dateRange = buildDateRange(opts.since, opts.until);
     await runCommand(dateRange, opts);
   });
 
   program
     .command('today')
-    .description('Show today\'s usage (default)')
+    .description('Show today\'s usage per provider with model breakdown')
     .action(async () => {
       const opts = program.opts<GlobalOpts>();
       await runCommand(getTodayRange(), opts);
@@ -54,20 +60,44 @@ export function createProgram(): Command {
 
   program
     .command('daily')
-    .description('Show usage for a date range')
+    .description('Show usage grouped by day')
     .action(async () => {
       const opts = program.opts<GlobalOpts>();
       const dateRange = buildDateRange(opts.since, opts.until);
-      await runCommand(dateRange, opts);
+      const periods = splitIntoDays(dateRange);
+      if (periods.length === 0) {
+        console.error('Invalid date range: --since must be before --until');
+        process.exit(1);
+      }
+      const config = await loadConfig();
+      const providers = getProviders(opts.provider);
+      const title = `Daily Report (${periods[0].label} to ${periods[periods.length - 1].label})`;
+      const summary = await aggregateGrouped(providers, periods, config, title);
+
+      if (opts.json) {
+        console.log(formatGroupedJSON(summary));
+      } else {
+        console.log(formatGroupedTable(summary));
+      }
     });
 
   program
-    .command('summary')
-    .description('Show usage summary')
+    .command('monthly')
+    .description('Show usage grouped by month')
     .action(async () => {
       const opts = program.opts<GlobalOpts>();
       const dateRange = buildDateRange(opts.since, opts.until);
-      await runCommand(dateRange, opts);
+      const periods = splitIntoMonths(dateRange);
+      const config = await loadConfig();
+      const providers = getProviders(opts.provider);
+      const title = `Monthly Report`;
+      const summary = await aggregateGrouped(providers, periods, config, title);
+
+      if (opts.json) {
+        console.log(formatGroupedJSON(summary));
+      } else {
+        console.log(formatGroupedTable(summary, 'Month'));
+      }
     });
 
   return program;
