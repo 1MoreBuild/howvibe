@@ -14,8 +14,30 @@ export function getTodayRange(): DateRange {
  * Parse a YYYY-MM-DD string into start-of-day Date in local timezone
  */
 export function parseDate(dateStr: string): Date {
-  const [year, month, day] = dateStr.split('-').map(Number);
-  return new Date(year, month - 1, day);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    throw new Error(`Invalid date format: "${dateStr}". Expected YYYY-MM-DD`);
+  }
+
+  const [yearStr, monthStr, dayStr] = dateStr.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    throw new Error(`Invalid date: "${dateStr}"`);
+  }
+
+  const parsed = new Date(year, month - 1, day);
+  const valid =
+    parsed.getFullYear() === year &&
+    parsed.getMonth() === month - 1 &&
+    parsed.getDate() === day;
+
+  if (!valid) {
+    throw new Error(`Invalid calendar date: "${dateStr}"`);
+  }
+
+  return parsed;
 }
 
 /**
@@ -28,6 +50,10 @@ export function buildDateRange(since?: string, until?: string): DateRange {
   const untilDate = until
     ? new Date(parseDate(until).getTime() + 24 * 60 * 60 * 1000 - 1)
     : getTodayRange().until;
+
+  if (sinceDate > untilDate) {
+    throw new Error('Invalid date range: --since must be before or equal to --until');
+  }
 
   return { since: sinceDate, until: untilDate };
 }

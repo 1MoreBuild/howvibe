@@ -1,4 +1,3 @@
-import process from 'node:process';
 import { Command } from 'commander';
 import { loadConfig } from './config.js';
 import { getProviders } from './providers/registry.js';
@@ -65,10 +64,6 @@ export function createProgram(): Command {
       const opts = program.opts<GlobalOpts>();
       const dateRange = buildDateRange(opts.since, opts.until);
       const periods = splitIntoDays(dateRange);
-      if (periods.length === 0) {
-        console.error('Invalid date range: --since must be before --until');
-        process.exit(1);
-      }
       const config = await loadConfig();
       const providers = getProviders(opts.provider);
       const title = `Daily Report (${periods[0].label} to ${periods[periods.length - 1].label})`;

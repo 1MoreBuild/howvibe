@@ -72,8 +72,8 @@ export async function aggregateGrouped(
       }
     }
 
-    // Only include rows that have data
-    if (input + output + reasoning + cacheRead + cacheCreate > 0) {
+    // Include rows with either token usage or non-zero cost.
+    if (input + output + reasoning + cacheRead + cacheCreate > 0 || cost > 0) {
       rows.push({
         label: period.label,
         inputTokens: input,
