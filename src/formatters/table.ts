@@ -115,6 +115,17 @@ export function formatTable(summary: UsageSummary): string {
   lines.push(`  ${'═'.repeat(60)}`);
   lines.push(`  ${pc.bold('Total Tokens')}: ${pc.green(formatNumber(grandTotal))}  ${pc.dim(`(${parts.join('  ')})`)}`);
   lines.push(`  ${pc.bold('Total Cost')}:   ${pc.dim(formatCost(summary.totalCostUSD))}`);
+
+  // Show daily average when the range spans more than one day
+  if (summary.period.since !== summary.period.until) {
+    const sinceMs = new Date(summary.period.since).getTime();
+    const untilMs = new Date(summary.period.until).getTime();
+    const days = Math.max(1, Math.round((untilMs - sinceMs) / 86_400_000) + 1);
+    const avgTokens = Math.round(grandTotal / days);
+    const avgCost = summary.totalCostUSD / days;
+    lines.push(`  ${pc.bold('Daily Avg')}:    ${pc.green(formatNumber(avgTokens))} tokens  ${pc.dim(formatCost(avgCost) + '/day')}  ${pc.dim(`(${days} days)`)}`);
+  }
+
   lines.push('');
 
   return lines.join('\n');
