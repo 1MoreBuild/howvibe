@@ -88,8 +88,9 @@ export function formatTable(summary: UsageSummary): string {
   let grandCacheRead = 0, grandCacheWrite = 0;
 
   for (const provider of summary.providers) {
+    const label = PROVIDER_LABELS[provider.provider] ?? provider.provider;
+
     if (provider.errors?.length && provider.models.length === 0) {
-      const label = PROVIDER_LABELS[provider.provider] ?? provider.provider;
       lines.push(`  ${pc.bold(pc.cyan(label))}  ${pc.yellow(provider.errors[0])}`);
     } else {
       lines.push(renderTokenTable(provider));
@@ -101,6 +102,13 @@ export function formatTable(summary: UsageSummary): string {
         grandCacheWrite += m.cacheCreationTokens;
       }
     }
+
+    if (provider.errors?.length && provider.models.length > 0) {
+      for (const err of provider.errors) {
+        lines.push(`  ${pc.yellow(`${label} warning: ${err}`)}`);
+      }
+    }
+
     lines.push('');
   }
 
