@@ -14,7 +14,12 @@ type ActivityItem = {
   reasoning_tokens?: number;
 };
 
-async function fetchActivity(managementKey: string, dateRange: DateRange): Promise<ActivityItem[]> {
+type FetchActivityResult = {
+  items: ActivityItem[];
+  errors: string[];
+};
+
+async function fetchActivity(managementKey: string, dateRange: DateRange): Promise<FetchActivityResult> {
   const dates: string[] = [];
   const cur = new Date(dateRange.since);
   while (cur <= dateRange.until) {
@@ -23,30 +28,38 @@ async function fetchActivity(managementKey: string, dateRange: DateRange): Promi
   }
 
   const allItems: ActivityItem[] = [];
+  const errors: string[] = [];
 
   for (const date of dates) {
-    const res = await fetch(`https://openrouter.ai/api/v1/activity?date=${date}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${managementKey}`,
-        Accept: 'application/json',
-      },
-      signal: AbortSignal.timeout(15_000),
-    });
+    try {
+      const res = await fetch(`https://openrouter.ai/api/v1/activity?date=${date}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${managementKey}`,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(15_000),
+      });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`HTTP ${res.status} for ${date}: ${text}`);
-    }
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        errors.push(`HTTP ${res.status} for ${date}${text ? `: ${text}` : ''}`);
+        continue;
+      }
 
-    const body = (await res.json()) as Record<string, unknown>;
-    const data = body.data;
-    if (Array.isArray(data)) {
-      allItems.push(...(data as ActivityItem[]));
+      const body = (await res.json()) as Record<string, unknown>;
+      const data = body.data;
+      if (Array.isArray(data)) {
+        allItems.push(...(data as ActivityItem[]));
+      } else {
+        errors.push(`Invalid response shape for ${date}: missing data[]`);
+      }
+    } catch (err) {
+      errors.push(`Request failed for ${date}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  return allItems;
+  return { items: allItems, errors };
 }
 
 export class OpenRouterProvider implements UsageProvider {
@@ -66,7 +79,7 @@ export class OpenRouterProvider implements UsageProvider {
     }
 
     try {
-      const items = await fetchActivity(managementKey, dateRange);
+      const { items, errors } = await fetchActivity(managementKey, dateRange);
 
       let records: ModelUsageRecord[] = items.map((item) => ({
         model: item.model,
@@ -86,6 +99,7 @@ export class OpenRouterProvider implements UsageProvider {
         models: records,
         totalCostUSD,
         dataSource: 'api',
+        errors: errors.length > 0 ? errors.map((e) => `OpenRouter API error: ${e}`) : undefined,
       };
     } catch (err) {
       return {
