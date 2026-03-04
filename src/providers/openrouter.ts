@@ -74,7 +74,7 @@ export class OpenRouterProvider implements UsageProvider {
         models: [],
         totalCostUSD: 0,
         dataSource: 'api',
-        errors: ['OPENROUTER_MANAGEMENT_KEY not set. Create one at openrouter.ai/settings/keys'],
+        errors: ['OPENROUTER_MANAGEMENT_KEY not set. Create one at https://openrouter.ai/settings/management-keys'],
       };
     }
 

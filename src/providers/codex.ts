@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { glob } from 'tinyglobby';
-import { getCodexHome, type HowvibeConfig } from '../config.js';
+import { getCodexHome, getUsageSource, type HowvibeConfig } from '../config.js';
 import { isInRange } from '../utils/date.js';
 import { calculateCost } from '../pricing.js';
 import { mergeByModel } from '../utils/tokens.js';
@@ -60,7 +60,18 @@ function subtractRawUsage(current: RawUsage, previous: RawUsage | null): RawUsag
 export class CodexProvider implements UsageProvider {
   readonly name = 'codex';
 
-  async getUsage(dateRange: DateRange, _config: HowvibeConfig): Promise<ProviderUsageResult> {
+  async getUsage(dateRange: DateRange, config: HowvibeConfig): Promise<ProviderUsageResult> {
+    const source = getUsageSource(config);
+    if (source !== 'auto' && source !== 'cli') {
+      return {
+        provider: 'codex',
+        models: [],
+        totalCostUSD: 0,
+        dataSource: 'local',
+        errors: [`Codex detailed token usage is local-only. Source "${source}" is not supported for this provider.`],
+      };
+    }
+
     const errors: string[] = [];
     const codexHome = getCodexHome();
     const sessionsDir = join(codexHome, 'sessions');
