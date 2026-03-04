@@ -662,4 +662,84 @@ describe('sync engine', () => {
     );
     expect(uploadedDayOutsideDefaultRepair).toBe(true);
   });
+
+  it('loads remote history before full backfill uploads to avoid overwriting richer snapshots', async () => {
+    const machineId = 'macbook-1';
+    const today = '2026-03-05';
+    const protectedHistoryDay = '2026-03-02';
+    const todayFile = daySnapshotFilename(today, machineId);
+    const historyFile = daySnapshotFilename(protectedHistoryDay, machineId);
+
+    const remoteTodayEmpty = createDaySnapshot(
+      today,
+      machineId,
+      {
+        period: { since: today, until: today },
+        providers: [],
+        totalCostUSD: 0,
+      },
+      new Date('2026-03-05T08:00:00.000Z'),
+    );
+    const remoteHistoryRicher = createDaySnapshot(
+      protectedHistoryDay,
+      machineId,
+      {
+        period: { since: protectedHistoryDay, until: protectedHistoryDay },
+        providers: [
+          {
+            provider: 'codex',
+            models: [
+              {
+                model: 'codex-model',
+                inputTokens: 100,
+                outputTokens: 0,
+                reasoningTokens: 0,
+                cacheCreationTokens: 0,
+                cacheReadTokens: 0,
+                costUSD: 0.1,
+              },
+            ],
+            totalCostUSD: 0.1,
+            dataSource: 'local',
+          },
+        ],
+        totalCostUSD: 0.1,
+      },
+      new Date('2026-03-02T08:00:00.000Z'),
+    );
+    const fake = new FakeGistClient({
+      [todayFile]: { content: JSON.stringify(remoteTodayEmpty), raw_url: `raw://${todayFile}#1` },
+      [historyFile]: { content: JSON.stringify(remoteHistoryRicher), raw_url: `raw://${historyFile}#2` },
+    });
+
+    await aggregateWithAutoSync(
+      { since: new Date(`${today}T00:00:00.000Z`), until: new Date(`${today}T23:59:59.999Z`) },
+      [providerWithDailyInput('codex', {
+        '2026-03-01': 11,
+        '2026-03-02': 20,
+        '2026-03-03': 13,
+        '2026-03-04': 14,
+        '2026-03-05': 15,
+      })],
+      {
+        sync: {
+          enabled: true,
+          provider: 'github_gist',
+          gistId: 'gist-1',
+          machineId,
+          bootstrapDays: 5,
+        },
+      },
+      {
+        ensureGhInstalled: async () => {},
+        getGhToken: async () => 'token',
+        loginGhWithGistScope: async () => {},
+        createGistClient: () => fake as unknown as GistClient,
+        now: () => new Date(`${today}T12:00:00.000Z`),
+      },
+    );
+
+    const overwroteRicherHistory = fake.patchCalls.some((call) => Object.prototype.hasOwnProperty.call(call, historyFile));
+    expect(overwroteRicherHistory).toBe(false);
+  });
 });

@@ -598,8 +598,27 @@ export async function aggregateWithAutoSync(
         localDaily.set(label, summary);
       }
     }
+
+    // Full-history backfill can introduce labels outside the original query window.
+    // Load remote snapshots for this machine before upload gating, so history writes
+    // still go through monotonic-regression protection instead of assuming "missing".
     for (const label of fullHistoryLabels) {
-      if (!existingRemoteByLabel.has(label)) {
+      if (existingRemoteByLabel.has(label)) continue;
+
+      const filename = daySnapshotFilename(label, config.sync.machineId);
+      const file = gist.files[filename];
+      if (!file) {
+        existingRemoteByLabel.set(label, null);
+        continue;
+      }
+
+      try {
+        const parsed = await parseSnapshotFromGistFile(filename, file, state, client);
+        existingRemoteByLabel.set(label, parsed);
+        const snapshots = remoteByDay.get(label) ?? [];
+        remoteByDay.set(label, upsertSnapshot(snapshots, parsed));
+      } catch (err) {
+        warnings.push(`Skipping remote snapshot ${filename}: ${err instanceof Error ? err.message : String(err)}`);
         existingRemoteByLabel.set(label, null);
       }
     }
