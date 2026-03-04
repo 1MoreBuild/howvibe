@@ -10,6 +10,7 @@
     "postinstall": "patch-package",
     "build": "tsup",
     "dev": "tsup --watch",
+    "reset:local": "bash ./scripts/reset-local-howvibe.sh --yes",
     "test": "vitest run",
     "test:watch": "vitest"
   },

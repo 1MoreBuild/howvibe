@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { glob } from 'tinyglobby';
-import { getClaudeConfigDir, type HowvibeConfig } from '../config.js';
+import { getClaudeConfigDir, getUsageSource, type HowvibeConfig } from '../config.js';
 import { processJSONLFile } from '../utils/fs.js';
 import { isInRange } from '../utils/date.js';
 import { calculateCost } from '../pricing.js';
@@ -26,7 +26,18 @@ function findProjectsDir(): string | undefined {
 export class ClaudeCodeProvider implements UsageProvider {
   readonly name = 'claude-code';
 
-  async getUsage(dateRange: DateRange, _config: HowvibeConfig): Promise<ProviderUsageResult> {
+  async getUsage(dateRange: DateRange, config: HowvibeConfig): Promise<ProviderUsageResult> {
+    const source = getUsageSource(config);
+    if (source !== 'auto' && source !== 'cli') {
+      return {
+        provider: 'claude-code',
+        models: [],
+        totalCostUSD: 0,
+        dataSource: 'local',
+        errors: [`Claude Code detailed token usage is local-only. Source "${source}" is not supported for this provider.`],
+      };
+    }
+
     const errors: string[] = [];
     const projectsDir = findProjectsDir();
 
