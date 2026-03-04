@@ -1,6 +1,6 @@
 {
   "name": "howvibe",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "CLI tool to track AI coding tool token usage and costs",
   "type": "module",
   "bin": {
@@ -10,6 +10,7 @@
     "postinstall": "patch-package",
     "build": "tsup",
     "dev": "tsup --watch",
+    "reset:local": "bash ./scripts/reset-local-howvibe.sh --yes",
     "test": "vitest run",
     "test:watch": "vitest"
   },
