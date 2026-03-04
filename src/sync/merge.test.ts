@@ -3,15 +3,15 @@ import { createDaySnapshot } from './schema.js';
 import { mergeDaySnapshots, summarizeFromDaily } from './merge.js';
 import type { UsageSummary } from '../types.js';
 
-function makeSummary(date: string, input: number, cost: number): UsageSummary {
+function makeSummary(date: string, input: number, cost: number, provider: 'codex' | 'cursor' = 'codex'): UsageSummary {
   return {
     period: { since: date, until: date },
     providers: [
       {
-        provider: 'codex',
+        provider,
         models: [
           {
-            model: 'gpt-5',
+            model: provider === 'cursor' ? 'cursor-model' : 'gpt-5',
             inputTokens: input,
             outputTokens: 0,
             reasoningTokens: 0,
@@ -47,6 +47,28 @@ describe('sync merge', () => {
 
     expect(merged.providers[0]?.models[0]?.inputTokens).toBe(20);
     expect(merged.totalCostUSD).toBeCloseTo(0.2);
+  });
+
+  it('does not double-count account-wide providers across machines', () => {
+    const day = '2026-03-02';
+    const a = createDaySnapshot(day, 'machine-a', makeSummary(day, 100, 1.0, 'cursor'), new Date('2026-03-02T10:00:00.000Z'));
+    const b = createDaySnapshot(day, 'machine-b', makeSummary(day, 100, 1.0, 'cursor'), new Date('2026-03-02T10:00:00.000Z'));
+    const merged = mergeDaySnapshots([a, b], ['cursor'], day);
+
+    expect(merged.providers[0]?.provider).toBe('cursor');
+    expect(merged.providers[0]?.models[0]?.inputTokens).toBe(100);
+    expect(merged.totalCostUSD).toBeCloseTo(1.0);
+  });
+
+  it('keeps richer account-wide snapshot when machines disagree', () => {
+    const day = '2026-03-02';
+    const low = createDaySnapshot(day, 'machine-a', makeSummary(day, 80, 0.8, 'cursor'), new Date('2026-03-02T10:00:00.000Z'));
+    const high = createDaySnapshot(day, 'machine-b', makeSummary(day, 120, 1.2, 'cursor'), new Date('2026-03-02T10:00:00.000Z'));
+    const merged = mergeDaySnapshots([low, high], ['cursor'], day);
+
+    expect(merged.providers[0]?.provider).toBe('cursor');
+    expect(merged.providers[0]?.models[0]?.inputTokens).toBe(120);
+    expect(merged.totalCostUSD).toBeCloseTo(1.2);
   });
 
   it('summarizes multiple days into a single period', () => {

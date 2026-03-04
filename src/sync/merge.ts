@@ -31,6 +31,48 @@ function providerOrder(providerNames: string[]): ProviderUsageResult['provider']
   return known.filter((name) => set.has(name));
 }
 
+const ACCOUNT_WIDE_PROVIDERS = new Set<ProviderUsageResult['provider']>(['cursor', 'openrouter']);
+
+function isAccountWideProvider(provider: ProviderUsageResult['provider']): boolean {
+  return ACCOUNT_WIDE_PROVIDERS.has(provider);
+}
+
+function providerTokenTotal(provider: DaySnapshot['providers'][number]): number {
+  return provider.models.reduce(
+    (sum, model) =>
+      sum +
+      model.inputTokens +
+      model.outputTokens +
+      model.reasoningTokens +
+      model.cacheCreationTokens +
+      model.cacheReadTokens,
+    0,
+  );
+}
+
+function compareProviderRichness(
+  candidate: DaySnapshot['providers'][number],
+  current: DaySnapshot['providers'][number],
+): number {
+  const candidateTokens = providerTokenTotal(candidate);
+  const currentTokens = providerTokenTotal(current);
+  if (candidateTokens !== currentTokens) return candidateTokens - currentTokens;
+
+  if (candidate.totalCostUSD !== current.totalCostUSD) {
+    return candidate.totalCostUSD - current.totalCostUSD;
+  }
+
+  if (candidate.models.length !== current.models.length) {
+    return candidate.models.length - current.models.length;
+  }
+
+  const currentErrors = current.errors?.length ?? 0;
+  const candidateErrors = candidate.errors?.length ?? 0;
+  if (currentErrors !== candidateErrors) return currentErrors - candidateErrors;
+
+  return 0;
+}
+
 export function mergeDaySnapshots(
   snapshots: DaySnapshot[],
   providerNames: string[],
@@ -46,12 +88,25 @@ export function mergeDaySnapshots(
   }
 
   const byProvider = new Map<ProviderUsageResult['provider'], { records: ProviderUsageResult['models']; errors: string[] }>();
+  const accountWideByProvider = new Map<
+    ProviderUsageResult['provider'],
+    { provider: DaySnapshot['providers'][number]; machineId: string }
+  >();
   for (const provider of providerOrder(providerNames)) {
+    if (isAccountWideProvider(provider)) continue;
     byProvider.set(provider, { records: [], errors: [] });
   }
 
   for (const snapshot of dedup.values()) {
     for (const provider of snapshot.providers) {
+      if (isAccountWideProvider(provider.provider)) {
+        const existing = accountWideByProvider.get(provider.provider);
+        if (!existing || compareProviderRichness(provider, existing.provider) > 0) {
+          accountWideByProvider.set(provider.provider, { provider, machineId: snapshot.machineId });
+        }
+        continue;
+      }
+
       if (!byProvider.has(provider.provider)) continue;
       const bucket = byProvider.get(provider.provider)!;
       bucket.records.push(...provider.models.map((m) => ({ ...m })));
@@ -65,6 +120,20 @@ export function mergeDaySnapshots(
 
   const providers: ProviderUsageResult[] = [];
   for (const name of providerOrder(providerNames)) {
+    if (isAccountWideProvider(name)) {
+      const selected = accountWideByProvider.get(name);
+      const models = mergeByModel(selected?.provider.models.map((m) => ({ ...m })) ?? []);
+      const errors = selected?.provider.errors?.map((err) => `[${selected.machineId}] ${err}`);
+      providers.push({
+        provider: name,
+        models,
+        totalCostUSD: models.reduce((sum, model) => sum + model.costUSD, 0),
+        dataSource: 'local',
+        errors: errors && errors.length > 0 ? errors : undefined,
+      });
+      continue;
+    }
+
     const bucket = byProvider.get(name)!;
     const models = mergeByModel(bucket.records);
     providers.push({
