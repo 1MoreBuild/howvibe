@@ -1,6 +1,6 @@
 import Table from 'cli-table3';
 import pc from 'picocolors';
-import type { GroupedUsageSummary } from '../types.js';
+import type { GroupedUsageSummary, SyncRuntimeMeta } from '../types.js';
 import { formatNumber, formatCost } from '../utils/tokens.js';
 
 export function formatGroupedTable(summary: GroupedUsageSummary, periodLabel = 'Date'): string {
@@ -93,10 +93,15 @@ export function formatGroupedTable(summary: GroupedUsageSummary, periodLabel = '
   return lines.join('\n');
 }
 
-export function formatGroupedJSON(summary: GroupedUsageSummary): string {
-  return JSON.stringify({
-    title: summary.title,
-    rows: summary.rows,
-    errors: summary.errors.length > 0 ? summary.errors : undefined,
-  }, null, 2);
+export function formatGroupedJSON(summary: GroupedUsageSummary, syncMeta?: SyncRuntimeMeta): string {
+  return JSON.stringify(
+    {
+      title: summary.title,
+      rows: summary.rows,
+      errors: summary.errors.length > 0 ? summary.errors : undefined,
+      sync_meta: syncMeta,
+    },
+    null,
+    2,
+  );
 }

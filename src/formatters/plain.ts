@@ -1,4 +1,4 @@
-import type { GroupedUsageSummary, UsageSummary } from '../types.js';
+import type { GroupedUsageSummary, SyncRuntimeMeta, UsageSummary } from '../types.js';
 
 type PlainValue = string | number | null | undefined;
 
@@ -15,7 +15,7 @@ function formatCost(value: number): string {
   return value.toFixed(6);
 }
 
-export function formatPlain(summary: UsageSummary): string {
+export function formatPlain(summary: UsageSummary, syncMeta?: SyncRuntimeMeta): string {
   const lines: string[] = [];
   const since = summary.period.since;
   const until = summary.period.until;
@@ -147,10 +147,32 @@ export function formatPlain(summary: UsageSummary): string {
     '',
   ]));
 
+  if (syncMeta) {
+    lines.push(tsvRow([
+      'sync_meta',
+      since,
+      until,
+      'all',
+      syncMeta.status,
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      JSON.stringify(syncMeta),
+    ]));
+  }
+
   return lines.join('\n');
 }
 
-export function formatGroupedPlain(summary: GroupedUsageSummary, period: 'daily' | 'monthly'): string {
+export function formatGroupedPlain(
+  summary: GroupedUsageSummary,
+  period: 'daily' | 'monthly',
+  syncMeta?: SyncRuntimeMeta,
+): string {
   const lines: string[] = [];
 
   lines.push(tsvRow([
@@ -234,6 +256,22 @@ export function formatGroupedPlain(summary: GroupedUsageSummary, period: 'daily'
     formatCost(totalCost),
     '',
   ]));
+
+  if (syncMeta) {
+    lines.push(tsvRow([
+      'sync_meta',
+      period,
+      syncMeta.status,
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      JSON.stringify(syncMeta),
+    ]));
+  }
 
   return lines.join('\n');
 }

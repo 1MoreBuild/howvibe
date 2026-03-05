@@ -65,6 +65,21 @@ Disable sync:
 howvibe sync disable
 ```
 
+Check sync state and remote machine coverage:
+
+```bash
+howvibe sync status
+```
+
+Audit synced data in GitHub:
+
+```bash
+# first get gist id from "howvibe sync status"
+gh gist view <gist-id>
+# or open in browser:
+https://gist.github.com/<gist-id>
+```
+
 Non-interactive mode (no prompts/login flow):
 
 ```bash
@@ -76,6 +91,11 @@ Notes:
 - `sync enable` may open GitHub login if `gh auth token` is unavailable.
 - In `--no-input` mode, you must already have a valid GitHub token from `gh auth login --web --scopes gist`.
 - `gh` CLI is required for sync.
+- Sync storage uses only your private GitHub Gist plus local cache under `~/.howvibe/sync` (no third-party sync backend).
+- Uploaded snapshots contain daily provider/model token and cost aggregates only.
+- Prompts, responses, and source files are never uploaded by sync.
+- Query commands (`today`, `daily`, `monthly`) always print a sync status line in human-readable output.
+- `--json` and `--plain` include `sync_meta` for scripting.
 
 ## CLI Usage
 
@@ -88,6 +108,7 @@ Commands:
   monthly
   sync enable
   sync disable
+  sync status
 ```
 
 Global options:

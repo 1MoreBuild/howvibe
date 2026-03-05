@@ -11,9 +11,11 @@ describe('cli commands', () => {
 
     const sync = program.commands.find((command) => command.name() === 'sync');
     expect(sync).toBeTruthy();
+    expect(sync?.description()).toContain('no third-party storage');
     const syncChildren = sync!.commands.map((command) => command.name());
     expect(syncChildren).toContain('enable');
     expect(syncChildren).toContain('disable');
+    expect(syncChildren).toContain('status');
   });
 
   it('supports guideline-aligned global flags', () => {

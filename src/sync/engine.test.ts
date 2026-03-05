@@ -161,9 +161,39 @@ describe('sync engine', () => {
     expect(login).toHaveBeenCalledTimes(1);
     expect(result.config.sync?.enabled).toBe(true);
     expect(result.gistId).toBe('gist-1');
+    expect(result.machineName).toBe(hostname());
     const hostPrefix = `${hostname().replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'machine'}-`;
     expect(result.machineId.startsWith(hostPrefix)).toBe(true);
     expect(Object.keys(fake.files).some((name) => name.includes('2026-03-02'))).toBe(true);
+  });
+
+  it('enableSync emits trust-focused progress messages and audit url', async () => {
+    const fake = new FakeGistClient();
+    const progress: string[] = [];
+
+    const result = await enableSync(
+      { sync: { bootstrapDays: 1 } },
+      [providerWithDailyInput('codex', { '2026-03-02': 20 })],
+      {
+        ensureGhInstalled: async () => {},
+        getGhToken: async () => 'token-123',
+        loginGhWithGistScope: async () => {},
+        createGistClient: () => fake as unknown as GistClient,
+        now: () => new Date('2026-03-02T12:00:00.000Z'),
+      },
+      {
+        onProgress: (message) => {
+          progress.push(message);
+        },
+      },
+    );
+
+    expect(result.auditUrl).toBe('https://gist.github.com/gist-1');
+    expect(progress).toContain('Sync destination: private GitHub Gist gist-1');
+    expect(progress).toContain('Audit URL: https://gist.github.com/gist-1');
+    expect(progress).toContain('Uploaded data: per-day provider/model token and cost aggregates.');
+    expect(progress).toContain('Not uploaded: prompts, responses, code files, or chat content.');
+    expect(progress).toContain('Upload complete. Review sync data at https://gist.github.com/gist-1');
   });
 
   it('enableSync fails fast in no-input mode when token is missing', async () => {
@@ -287,6 +317,9 @@ describe('sync engine', () => {
     expect(fake.patchCalls.length).toBe(1);
     expect(result.syncApplied).toBe(true);
     expect(result.reminder).toBeTruthy();
+    expect(result.syncMeta.status).toBe('active');
+    expect(result.syncMeta.mergedMachines).toBeGreaterThanOrEqual(1);
+    expect(result.syncMeta.mergedSnapshots).toBeGreaterThanOrEqual(1);
   });
 
   it('aggregateWithAutoSync skips upload when today digest is unchanged', async () => {
@@ -369,6 +402,43 @@ describe('sync engine', () => {
     expect(result.syncApplied).toBe(false);
     expect(result.warnings.some((warning) => warning.includes('gh auth token'))).toBe(true);
     expect(result.summary.providers[0]?.models[0]?.inputTokens).toBe(42);
+    expect(result.syncMeta.status).toBe('skipped');
+    expect(result.syncMeta.reason).toContain('gh auth token');
+  });
+
+  it('reports uploadedSnapshots as 0 when upload patch fails', async () => {
+    class FailingPatchGistClient extends FakeGistClient {
+      override async patchGist(_id: string, files: Record<string, { content: string } | null>) {
+        this.patchCalls.push(files as Record<string, { content: string }>);
+        throw new Error('network down');
+      }
+    }
+
+    const fake = new FailingPatchGistClient();
+    const result = await aggregateWithAutoSync(
+      { since: new Date('2026-03-02T00:00:00.000Z'), until: new Date('2026-03-02T23:59:59.999Z') },
+      [providerWithDailyInput('codex', { '2026-03-02': 42 })],
+      {
+        sync: {
+          enabled: true,
+          provider: 'github_gist',
+          gistId: 'gist-1',
+          machineId: 'macbook-1',
+          bootstrapDays: 90,
+        },
+      },
+      {
+        ensureGhInstalled: async () => {},
+        getGhToken: async () => 'token',
+        loginGhWithGistScope: async () => {},
+        createGistClient: () => fake as unknown as GistClient,
+        now: () => new Date('2026-03-02T12:00:00.000Z'),
+      },
+    );
+
+    expect(result.warnings.some((warning) => warning.includes('Sync upload skipped'))).toBe(true);
+    expect(result.syncMeta.status).toBe('active');
+    expect(result.syncMeta.uploadedSnapshots).toBe(0);
   });
 
   it('uses single-pass aggregation when sync is disabled', async () => {
@@ -405,6 +475,8 @@ describe('sync engine', () => {
 
     expect(result.syncApplied).toBe(false);
     expect(getUsage).toHaveBeenCalledTimes(1);
+    expect(result.syncMeta.status).toBe('disabled');
+    expect(result.syncMeta.reason).toContain('local-only');
   });
 
   it('re-uploads today when remote snapshot is missing even if local digest cache matches', async () => {

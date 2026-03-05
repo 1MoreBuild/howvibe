@@ -39,6 +39,7 @@ const DaySnapshotSchema = z.object({
   schemaVersion: z.literal(HOWVIBE_SYNC_SCHEMA_VERSION),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   machineId: z.string().min(1),
+  machineName: z.string().min(1).optional(),
   generatedAt: z.string(),
   providers: z.array(ProviderUsageResultSchema),
   totalCostUSD: z.number(),
@@ -88,11 +89,13 @@ export function createDaySnapshot(
   machineId: string,
   summary: UsageSummary,
   generatedAt = new Date(),
+  machineName?: string,
 ): DaySnapshot {
   const payload: Omit<DaySnapshot, 'digest'> = {
     schemaVersion: HOWVIBE_SYNC_SCHEMA_VERSION,
     date,
     machineId,
+    machineName,
     generatedAt: generatedAt.toISOString(),
     providers: summary.providers,
     totalCostUSD: summary.totalCostUSD,
@@ -103,6 +106,7 @@ export function createDaySnapshot(
       schemaVersion: payload.schemaVersion,
       date: payload.date,
       machineId: payload.machineId,
+      machineName: payload.machineName,
       providers: payload.providers,
       totalCostUSD: payload.totalCostUSD,
     }),
@@ -119,6 +123,7 @@ export function parseDaySnapshot(raw: unknown): DaySnapshot {
     schemaVersion: data.schemaVersion,
     date: data.date,
     machineId: data.machineId,
+    machineName: data.machineName,
     providers: data.providers,
     totalCostUSD: data.totalCostUSD,
   });

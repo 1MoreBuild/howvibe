@@ -27,6 +27,28 @@ export type UsageSummary = {
   totalCostUSD: number;
 };
 
+export type SyncMachineInfo = {
+  id: string;
+  name?: string;
+  snapshotDays?: number;
+};
+
+export type SyncRuntimeMeta = {
+  status: 'disabled' | 'active' | 'skipped';
+  enabled: boolean;
+  applied: boolean;
+  reason?: string;
+  gistId?: string;
+  machineId?: string;
+  machineName?: string;
+  queryDays: number;
+  mergedSnapshots: number;
+  mergedMachines: number;
+  machines: SyncMachineInfo[];
+  uploadedSnapshots: number;
+  accountWideProviders: string[];
+};
+
 export type GroupedUsageRow = {
   label: string; // e.g. "2026-02-28" or "2026-02"
   inputTokens: number;

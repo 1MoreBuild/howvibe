@@ -4,7 +4,7 @@ import type { HowvibeConfig } from '../config.js';
 import { DEFAULT_SYNC_BOOTSTRAP_DAYS } from '../config.js';
 import type { UsageProvider } from '../providers/interface.js';
 import { aggregateUsage } from '../aggregator.js';
-import type { DateRange, UsageSummary } from '../types.js';
+import type { DateRange, SyncMachineInfo, SyncRuntimeMeta, UsageSummary } from '../types.js';
 import { formatDate } from '../utils/date.js';
 import { GistClient, findOrCreateSyncGist } from './gist-client.js';
 import {
@@ -47,6 +47,7 @@ type EnableSyncOptions = {
 
 const HISTORY_REPAIR_BATCH_DAYS = 3;
 const FLOAT_EPSILON = 1e-6;
+const ACCOUNT_WIDE_PROVIDER_SET = new Set(['cursor', 'openrouter']);
 
 const DEFAULT_DEPS: SyncDependencies = {
   ensureGhInstalled,
@@ -62,12 +63,15 @@ export type SyncRunResult = {
   warnings: string[];
   reminder?: string;
   syncApplied: boolean;
+  syncMeta: SyncRuntimeMeta;
 };
 
 export type EnableSyncResult = {
   config: HowvibeConfig;
   warnings: string[];
   gistId: string;
+  auditUrl: string;
+  machineName: string;
   machineId: string;
   bootstrapDays: number;
 };
@@ -79,6 +83,40 @@ function providerNames(providers: UsageProvider[]): string[] {
 function generateMachineIdFromHostname(name: string): string {
   const base = sanitizeMachineId(name) || 'machine';
   return `${base}-${randomUUID().slice(0, 8)}`;
+}
+
+function accountWideProvidersFor(providers: UsageProvider[]): string[] {
+  return [
+    ...new Set(
+      providers
+        .map((provider) => provider.name)
+        .filter((name) => ACCOUNT_WIDE_PROVIDER_SET.has(name)),
+    ),
+  ];
+}
+
+function buildSyncMeta(
+  status: SyncRuntimeMeta['status'],
+  config: HowvibeConfig,
+  providers: UsageProvider[],
+  queryDays: number,
+  overrides: Partial<SyncRuntimeMeta> = {},
+): SyncRuntimeMeta {
+  return {
+    status,
+    enabled: overrides.enabled ?? status !== 'disabled',
+    applied: overrides.applied ?? status === 'active',
+    reason: overrides.reason,
+    gistId: config.sync?.gistId,
+    machineId: config.sync?.machineId,
+    machineName: config.sync?.machineName,
+    queryDays,
+    mergedSnapshots: overrides.mergedSnapshots ?? 0,
+    mergedMachines: overrides.mergedMachines ?? 0,
+    machines: overrides.machines ?? [],
+    uploadedSnapshots: overrides.uploadedSnapshots ?? 0,
+    accountWideProviders: overrides.accountWideProviders ?? accountWideProvidersFor(providers),
+  };
 }
 
 async function collectLocalDailySummaries(
@@ -106,6 +144,7 @@ function localResult(
   period: { since: string; until: string },
   warnings: string[],
   includeReminder: boolean,
+  syncMeta: SyncRuntimeMeta,
 ): SyncRunResult {
   const byDay = new Map<string, UsageSummary>();
   for (const label of labels) {
@@ -118,6 +157,7 @@ function localResult(
     warnings,
     reminder: includeReminder ? SYNC_REMINDER : undefined,
     syncApplied: false,
+    syncMeta,
   };
 }
 
@@ -394,11 +434,18 @@ export async function enableSync(
 
   onProgress('Locating or creating sync gist...');
   const { gist } = await findOrCreateSyncGist(client);
+  const auditUrl = `https://gist.github.com/${gist.id}`;
+  onProgress(`Sync destination: private GitHub Gist ${gist.id}`);
+  onProgress(`Audit URL: ${auditUrl}`);
+  onProgress('Uploaded data: per-day provider/model token and cost aggregates.');
+  onProgress('Not uploaded: prompts, responses, code files, or chat content.');
 
+  const machineName = hostname();
   const machineId =
     config.sync?.machineId
       ? (sanitizeMachineId(config.sync.machineId) || `machine-${randomUUID().slice(0, 8)}`)
-      : generateMachineIdFromHostname(hostname());
+      : generateMachineIdFromHostname(machineName);
+  onProgress(`Using machine: ${machineName}`);
   const bootstrapDays = Math.max(1, config.sync?.bootstrapDays ?? DEFAULT_SYNC_BOOTSTRAP_DAYS);
   const now = deps.now();
   onProgress(`Using machine id: ${machineId}`);
@@ -410,6 +457,7 @@ export async function enableSync(
       enabled: true,
       provider: 'github_gist',
       gistId: gist.id,
+      machineName,
       machineId,
       bootstrapDays,
     },
@@ -436,7 +484,7 @@ export async function enableSync(
     const summary = localDaily.get(label);
     if (!summary) continue;
 
-    const snapshot = createDaySnapshot(label, machineId, summary, now);
+    const snapshot = createDaySnapshot(label, machineId, summary, now, machineName);
     const filename = daySnapshotFilename(label, machineId);
     const existsRemote = Boolean(gist.files[filename]);
 
@@ -449,21 +497,23 @@ export async function enableSync(
   }
 
   if (Object.keys(filesToUpload).length > 0) {
-    onProgress(`Uploading ${Object.keys(filesToUpload).length} day snapshots...`);
+    onProgress(`Uploading ${Object.keys(filesToUpload).length} day snapshots to gist ${gist.id}...`);
     try {
       const latestFiles = await patchGistInBatches(client, gist.id, filesToUpload, 20, (current, total) => {
-        onProgress(`Upload batch ${current}/${total}`);
+        onProgress(`Upload batch ${current}/${total} -> gist ${gist.id}`);
       });
       for (const [filename, file] of Object.entries(latestFiles)) {
         if (file.raw_url) {
           state.remoteFileVersions[filename] = file.raw_url;
         }
       }
+      onProgress(`Upload complete. Review sync data at ${auditUrl}`);
     } catch (err) {
       warnings.push(`Initial sync backfill failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   } else {
-    onProgress('No backfill upload needed.');
+    onProgress('No backfill upload needed. Existing history already present.');
+    onProgress(`Review existing sync data at ${auditUrl}`);
   }
 
   state.lastSyncedAt = now.toISOString();
@@ -474,6 +524,8 @@ export async function enableSync(
     config: nextConfig,
     warnings,
     gistId: gist.id,
+    auditUrl,
+    machineName,
     machineId,
     bootstrapDays,
   };
@@ -525,12 +577,29 @@ export async function aggregateWithAutoSync(
       daily: new Map(),
       warnings: [],
       syncApplied: false,
+      syncMeta: buildSyncMeta('disabled', config, providers, queryLabels.length, {
+        enabled: false,
+        applied: false,
+        reason: 'Showing local-only results.',
+      }),
     };
   }
 
   const localDaily = await collectLocalDailySummaries(labelsForLocal, providers, config);
   if (!syncReady || !config.sync?.gistId || !config.sync.machineId) {
-    return localResult(queryLabels, localDaily, providers, period, [], false);
+    return localResult(
+      queryLabels,
+      localDaily,
+      providers,
+      period,
+      [],
+      false,
+      buildSyncMeta('disabled', config, providers, queryLabels.length, {
+        enabled: false,
+        applied: false,
+        reason: 'Showing local-only results.',
+      }),
+    );
   }
 
   const warnings: string[] = [];
@@ -538,13 +607,33 @@ export async function aggregateWithAutoSync(
     await deps.ensureGhInstalled();
   } catch (err) {
     warnings.push(`Sync skipped: ${err instanceof Error ? err.message : String(err)}`);
-    return localResult(queryLabels, localDaily, providers, period, warnings, true);
+    return localResult(
+      queryLabels,
+      localDaily,
+      providers,
+      period,
+      warnings,
+      true,
+      buildSyncMeta('skipped', config, providers, queryLabels.length, {
+        reason: warnings[0],
+      }),
+    );
   }
 
   const token = await deps.getGhToken();
   if (!token) {
     warnings.push('Sync skipped: `gh auth token` unavailable. Run `howvibe sync enable` again to re-authenticate.');
-    return localResult(queryLabels, localDaily, providers, period, warnings, true);
+    return localResult(
+      queryLabels,
+      localDaily,
+      providers,
+      period,
+      warnings,
+      true,
+      buildSyncMeta('skipped', config, providers, queryLabels.length, {
+        reason: warnings[0],
+      }),
+    );
   }
 
   const client = deps.createGistClient(token);
@@ -554,7 +643,17 @@ export async function aggregateWithAutoSync(
     gist = await client.getGist(config.sync.gistId);
   } catch (err) {
     warnings.push(`Sync skipped: ${err instanceof Error ? err.message : String(err)}`);
-    return localResult(queryLabels, localDaily, providers, period, warnings, true);
+    return localResult(
+      queryLabels,
+      localDaily,
+      providers,
+      period,
+      warnings,
+      true,
+      buildSyncMeta('skipped', config, providers, queryLabels.length, {
+        reason: warnings[0],
+      }),
+    );
   }
 
   const querySet = new Set(labelsForLocal);
@@ -584,7 +683,7 @@ export async function aggregateWithAutoSync(
   for (const label of labelsForLocal) {
     const summary = localDaily.get(label);
     if (!summary) continue;
-    const localSnapshot = createDaySnapshot(label, config.sync.machineId, summary, now);
+    const localSnapshot = createDaySnapshot(label, config.sync.machineId, summary, now, config.sync.machineName);
     const remoteSnapshot = existingRemoteByLabel.get(label) ?? null;
     if (snapshotHasNewProviderData(localSnapshot, remoteSnapshot)) {
       forceFullHistoryBackfill = true;
@@ -636,7 +735,7 @@ export async function aggregateWithAutoSync(
   for (const label of labelsForLocal) {
     const localSummary = localDaily.get(label);
     if (!localSummary) continue;
-    const localSnapshot = createDaySnapshot(label, config.sync.machineId, localSummary, now);
+    const localSnapshot = createDaySnapshot(label, config.sync.machineId, localSummary, now, config.sync.machineName);
     const list = remoteByDay.get(label) ?? [];
     remoteByDay.set(label, upsertSnapshot(list, localSnapshot));
   }
@@ -645,11 +744,12 @@ export async function aggregateWithAutoSync(
   const uploadLabels = [...new Set([today, ...queryLabels, ...repairLabels, ...fullHistoryLabels])];
   const filesToUpload: Record<string, { content: string }> = {};
   const pendingSnapshots = new Map<string, DaySnapshot>();
+  let uploadedSnapshots = 0;
 
   for (const label of uploadLabels) {
     const summary = localDaily.get(label);
     if (!summary) continue;
-    const snapshot = createDaySnapshot(label, config.sync.machineId, summary, now);
+    const snapshot = createDaySnapshot(label, config.sync.machineId, summary, now, config.sync.machineName);
     const remoteSnapshot = existingRemoteByLabel.get(label) ?? null;
     const isToday = label === today;
     if (!shouldUploadSnapshot(snapshot, remoteSnapshot, isToday)) continue;
@@ -670,6 +770,7 @@ export async function aggregateWithAutoSync(
         state.localDigests[filename] = snapshot.digest;
         await writeCachedSnapshot(filename, snapshot);
       }
+      uploadedSnapshots = pendingSnapshots.size;
     } catch (err) {
       warnings.push(`Sync upload skipped: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -681,6 +782,33 @@ export async function aggregateWithAutoSync(
     daily.set(label, mergeDaySnapshots(snapshots, providerNames(providers), label));
   }
 
+  const machineById = new Map<string, SyncMachineInfo>();
+  let mergedSnapshots = 0;
+  for (const label of queryLabels) {
+    const snapshots = remoteByDay.get(label) ?? [];
+    mergedSnapshots += snapshots.length;
+    for (const snapshot of snapshots) {
+      const existing = machineById.get(snapshot.machineId);
+      if (!existing) {
+        machineById.set(snapshot.machineId, {
+          id: snapshot.machineId,
+          name: snapshot.machineName,
+          snapshotDays: 1,
+        });
+        continue;
+      }
+      existing.snapshotDays = (existing.snapshotDays ?? 0) + 1;
+      if (!existing.name && snapshot.machineName) {
+        existing.name = snapshot.machineName;
+      }
+    }
+  }
+  const machines = [...machineById.values()].sort((a, b) => {
+    const byDays = (b.snapshotDays ?? 0) - (a.snapshotDays ?? 0);
+    if (byDays !== 0) return byDays;
+    return a.id.localeCompare(b.id);
+  });
+
   state.lastSyncedAt = now.toISOString();
   await saveSyncState(state);
 
@@ -690,5 +818,12 @@ export async function aggregateWithAutoSync(
     warnings,
     reminder: SYNC_REMINDER,
     syncApplied: true,
+    syncMeta: buildSyncMeta('active', config, providers, queryLabels.length, {
+      applied: true,
+      mergedSnapshots,
+      mergedMachines: machines.length,
+      machines,
+      uploadedSnapshots,
+    }),
   };
 }
