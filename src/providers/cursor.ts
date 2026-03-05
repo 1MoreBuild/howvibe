@@ -90,7 +90,7 @@ export class CursorProvider implements UsageProvider {
           models: [],
           totalCostUSD: 0,
           dataSource: 'api',
-          errors: [`Cursor API error ${res.status}: ${text}`],
+          errors: [`Cursor API error ${res.status}: ${text.slice(0, 200)}`],
         };
       }
 
@@ -101,6 +101,11 @@ export class CursorProvider implements UsageProvider {
       const total = body.totalUsageEventsCount ?? 0;
       if (page * pageSize >= total || events.length === 0) break;
       page++;
+    }
+
+    const errors: string[] = [];
+    if (page > maxPages) {
+      errors.push(`Cursor: pagination limit reached (${maxPages * pageSize} events). Results may be incomplete.`);
     }
 
     const records: ModelUsageRecord[] = allEvents
@@ -126,6 +131,7 @@ export class CursorProvider implements UsageProvider {
       models: merged,
       totalCostUSD,
       dataSource: 'api',
+      errors: errors.length > 0 ? errors : undefined,
     };
   }
 }

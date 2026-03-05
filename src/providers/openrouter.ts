@@ -41,7 +41,7 @@ async function fetchActivity(managementKey: string, dateRange: DateRange): Promi
 
         if (!res.ok) {
           const text = await res.text().catch(() => '');
-          return { items: [] as ActivityItem[], error: `HTTP ${res.status} for ${date}${text ? `: ${text}` : ''}` };
+          return { items: [] as ActivityItem[], error: `HTTP ${res.status} for ${date}${text ? `: ${text.slice(0, 200)}` : ''}` };
         }
 
         const body = (await res.json()) as Record<string, unknown>;
