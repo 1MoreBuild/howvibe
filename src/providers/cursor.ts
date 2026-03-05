@@ -105,7 +105,8 @@ export class CursorProvider implements UsageProvider {
 
     const errors: string[] = [];
     if (page > maxPages) {
-      errors.push(`Cursor: pagination limit reached (${maxPages * pageSize} events). Results may be incomplete.`);
+      const fetched = allEvents.length;
+      errors.push(`Cursor: pagination limit reached — fetched ${fetched.toLocaleString()} of potentially more events. Results may be incomplete.`);
     }
 
     const records: ModelUsageRecord[] = allEvents
