@@ -1,6 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { getHowvibeSyncCacheDir, getHowvibeSyncStatePath } from '../config.js';
 import type { DaySnapshot } from './schema.js';
@@ -9,7 +8,7 @@ import { HOWVIBE_SYNC_SCHEMA_VERSION } from './constants.js';
 
 const SyncStateSchema = z.object({
   schemaVersion: z.literal(HOWVIBE_SYNC_SCHEMA_VERSION),
-  syncedDays: z.array(z.string()),
+  syncedDays: z.array(z.string()).optional(), // Legacy field, no longer used
   remoteFileVersions: z.record(z.string(), z.string()),
   localDigests: z.record(z.string(), z.string()),
   repairCursorDate: z.string().optional(),
@@ -21,7 +20,6 @@ export type SyncState = z.infer<typeof SyncStateSchema>;
 export function createEmptySyncState(): SyncState {
   return {
     schemaVersion: HOWVIBE_SYNC_SCHEMA_VERSION,
-    syncedDays: [],
     remoteFileVersions: {},
     localDigests: {},
   };
@@ -45,16 +43,13 @@ export async function saveSyncState(state: SyncState): Promise<void> {
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
 }
 
-export function markSyncedDays(state: SyncState, date: string, providers: string[]): void {
-  const set = new Set(state.syncedDays);
-  for (const provider of providers) {
-    set.add(`${provider}:${date}`);
-  }
-  state.syncedDays = [...set].sort();
-}
-
 function cachePath(filename: string): string {
-  return join(getHowvibeSyncCacheDir(), filename);
+  const cacheDir = getHowvibeSyncCacheDir();
+  const resolved = resolve(cacheDir, filename);
+  if (!resolved.startsWith(resolve(cacheDir))) {
+    throw new Error(`Invalid cache filename (path traversal): ${filename}`);
+  }
+  return resolved;
 }
 
 export async function writeCachedSnapshot(filename: string, snapshot: DaySnapshot): Promise<void> {
@@ -63,10 +58,8 @@ export async function writeCachedSnapshot(filename: string, snapshot: DaySnapsho
 }
 
 export async function readCachedSnapshot(filename: string): Promise<DaySnapshot | null> {
-  const path = cachePath(filename);
-  if (!existsSync(path)) return null;
   try {
-    const raw = await readFile(path, 'utf-8');
+    const raw = await readFile(cachePath(filename), 'utf-8');
     return parseDaySnapshot(JSON.parse(raw));
   } catch {
     return null;

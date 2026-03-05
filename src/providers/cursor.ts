@@ -69,8 +69,9 @@ export class CursorProvider implements UsageProvider {
     const allEvents: CursorUsageEvent[] = [];
     let page = 1;
     const pageSize = 100;
+    const maxPages = 100; // Safety limit: 10,000 events max
 
-    while (true) {
+    while (page <= maxPages) {
       const res = await fetch('https://cursor.com/api/dashboard/get-filtered-usage-events', {
         method: 'POST',
         headers: {

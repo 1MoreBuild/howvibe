@@ -27,8 +27,15 @@ export function dayLabelToRange(day: string): { since: Date; until: Date } {
 
 function providerOrder(providerNames: string[]): ProviderUsageResult['provider'][] {
   const known: ProviderUsageResult['provider'][] = ['claude-code', 'codex', 'cursor', 'openrouter'];
-  const set = new Set(providerNames);
-  return known.filter((name) => set.has(name));
+  const knownSet = new Set<string>(known);
+  const ordered = known.filter((name) => providerNames.includes(name));
+  // Append any unknown providers at the end so they aren't silently dropped
+  for (const name of providerNames) {
+    if (!knownSet.has(name)) {
+      ordered.push(name as ProviderUsageResult['provider']);
+    }
+  }
+  return ordered;
 }
 
 const ACCOUNT_WIDE_PROVIDERS = new Set<ProviderUsageResult['provider']>(['cursor', 'openrouter']);

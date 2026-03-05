@@ -27,36 +27,40 @@ async function fetchActivity(managementKey: string, dateRange: DateRange): Promi
     cur.setDate(cur.getDate() + 1);
   }
 
+  const results = await Promise.all(
+    dates.map(async (date) => {
+      try {
+        const res = await fetch(`https://openrouter.ai/api/v1/activity?date=${date}`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${managementKey}`,
+            Accept: 'application/json',
+          },
+          signal: AbortSignal.timeout(15_000),
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          return { items: [] as ActivityItem[], error: `HTTP ${res.status} for ${date}${text ? `: ${text}` : ''}` };
+        }
+
+        const body = (await res.json()) as Record<string, unknown>;
+        const data = body.data;
+        if (Array.isArray(data)) {
+          return { items: data as ActivityItem[], error: null };
+        }
+        return { items: [] as ActivityItem[], error: `Invalid response shape for ${date}: missing data[]` };
+      } catch (err) {
+        return { items: [] as ActivityItem[], error: `Request failed for ${date}: ${err instanceof Error ? err.message : String(err)}` };
+      }
+    }),
+  );
+
   const allItems: ActivityItem[] = [];
   const errors: string[] = [];
-
-  for (const date of dates) {
-    try {
-      const res = await fetch(`https://openrouter.ai/api/v1/activity?date=${date}`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${managementKey}`,
-          Accept: 'application/json',
-        },
-        signal: AbortSignal.timeout(15_000),
-      });
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        errors.push(`HTTP ${res.status} for ${date}${text ? `: ${text}` : ''}`);
-        continue;
-      }
-
-      const body = (await res.json()) as Record<string, unknown>;
-      const data = body.data;
-      if (Array.isArray(data)) {
-        allItems.push(...(data as ActivityItem[]));
-      } else {
-        errors.push(`Invalid response shape for ${date}: missing data[]`);
-      }
-    } catch (err) {
-      errors.push(`Request failed for ${date}: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  for (const result of results) {
+    allItems.push(...result.items);
+    if (result.error) errors.push(result.error);
   }
 
   return { items: allItems, errors };

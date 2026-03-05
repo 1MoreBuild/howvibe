@@ -28,7 +28,7 @@ export type SyncGist = {
 async function parseError(res: Response): Promise<string> {
   const text = await res.text().catch(() => '');
   if (!text) return `HTTP ${res.status}`;
-  return `HTTP ${res.status}: ${text}`;
+  return `HTTP ${res.status}: ${text.slice(0, 200)}`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -50,12 +50,23 @@ export class GistClient {
   }
 
   async listGists(): Promise<GistListResponse> {
-    const res = await fetch('https://api.github.com/gists?per_page=100', {
-      headers: this.headers(),
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!res.ok) throw new Error(`Failed to list gists: ${await parseError(res)}`);
-    return (await res.json()) as GistListResponse;
+    const all: GistListResponse = [];
+    let page = 1;
+    const maxPages = 10; // Safety limit: 1000 gists max
+
+    while (page <= maxPages) {
+      const res = await fetch(`https://api.github.com/gists?per_page=100&page=${page}`, {
+        headers: this.headers(),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!res.ok) throw new Error(`Failed to list gists: ${await parseError(res)}`);
+      const batch = (await res.json()) as GistListResponse;
+      all.push(...batch);
+      if (batch.length < 100) break;
+      page++;
+    }
+
+    return all;
   }
 
   async getGist(gistId: string): Promise<SyncGist> {
@@ -117,6 +128,15 @@ export class GistClient {
   }
 
   async downloadRawFile(rawUrl: string): Promise<string> {
+    // Validate URL domain to prevent token exfiltration via malicious raw_url
+    const ALLOWED_PREFIXES = [
+      'https://gist.githubusercontent.com/',
+      'https://api.github.com/',
+    ];
+    if (!ALLOWED_PREFIXES.some((prefix) => rawUrl.startsWith(prefix))) {
+      throw new Error(`Refusing to send auth header to untrusted URL: ${rawUrl}`);
+    }
+
     const res = await fetch(rawUrl, {
       headers: this.headers(),
       signal: AbortSignal.timeout(20_000),
