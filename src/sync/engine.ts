@@ -42,6 +42,7 @@ type SyncDependencies = {
 
 type EnableSyncOptions = {
   onProgress?: (message: string) => void;
+  noInput?: boolean;
 };
 
 const HISTORY_REPAIR_BATCH_DAYS = 3;
@@ -318,9 +319,16 @@ function shouldUploadSnapshot(
   return isMonotonicHistoricalImprovement(localSnapshot, remoteSnapshot);
 }
 
-async function resolveTokenForEnable(deps: SyncDependencies): Promise<string> {
+async function resolveTokenForEnable(deps: SyncDependencies, options: EnableSyncOptions): Promise<string> {
   let token = await deps.getGhToken();
   if (token) return token;
+
+  if (options.noInput) {
+    throw new Error(
+      'GitHub auth token is unavailable in non-interactive mode. ' +
+      'Run `gh auth login --web --scopes gist` first, then retry.',
+    );
+  }
 
   await deps.loginGhWithGistScope();
   token = await deps.getGhToken();
@@ -381,7 +389,7 @@ export async function enableSync(
   await deps.ensureGhInstalled();
 
   onProgress('Authorizing GitHub account...');
-  const token = await resolveTokenForEnable(deps);
+  const token = await resolveTokenForEnable(deps, options);
   const client = deps.createGistClient(token);
 
   onProgress('Locating or creating sync gist...');

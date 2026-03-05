@@ -166,6 +166,29 @@ describe('sync engine', () => {
     expect(Object.keys(fake.files).some((name) => name.includes('2026-03-02'))).toBe(true);
   });
 
+  it('enableSync fails fast in no-input mode when token is missing', async () => {
+    const fake = new FakeGistClient();
+    const getToken = vi.fn<() => Promise<string | null>>().mockResolvedValue(null);
+    const login = vi.fn<() => Promise<void>>().mockResolvedValue();
+
+    await expect(
+      enableSync(
+        { sync: { bootstrapDays: 2 } },
+        [providerWithDailyInput('codex', { '2026-03-01': 10, '2026-03-02': 20 })],
+        {
+          ensureGhInstalled: async () => {},
+          getGhToken: getToken,
+          loginGhWithGistScope: login,
+          createGistClient: () => fake as unknown as GistClient,
+          now: () => new Date('2026-03-02T12:00:00.000Z'),
+        },
+        { noInput: true },
+      ),
+    ).rejects.toThrow(/non-interactive mode/i);
+
+    expect(login).not.toHaveBeenCalled();
+  });
+
   it('enableSync keeps historical files frozen and only upserts today', async () => {
     const meta = createSyncMeta(new Date('2026-03-01T00:00:00.000Z'));
     const machineId = 'macbook-1';

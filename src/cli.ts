@@ -1,4 +1,5 @@
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
+import { readFileSync } from 'node:fs';
 import { disableSync, enableSync, aggregateWithAutoSync } from './sync/engine.js';
 import { loadConfig, saveConfig, getUsageSource, type HowvibeConfig } from './config.js';
 import { getProviders } from './providers/registry.js';
@@ -6,15 +7,33 @@ import { buildDateRange, getTodayRange, splitIntoDays, splitIntoMonths } from '.
 import { formatTable } from './formatters/table.js';
 import { formatJSON } from './formatters/json.js';
 import { formatGroupedTable, formatGroupedJSON } from './formatters/grouped-table.js';
+import { formatPlain, formatGroupedPlain } from './formatters/plain.js';
 import type { DateRange, GroupedUsageSummary, UsageSummary } from './types.js';
 
 type GlobalOpts = {
   json?: boolean;
+  plain?: boolean;
+  quiet?: boolean;
+  input?: boolean;
+  color?: boolean;
   provider?: string;
   source?: string;
   since?: string;
   until?: string;
 };
+
+function readPackageVersion(): string {
+  try {
+    const raw = readFileSync(new URL('../package.json', import.meta.url), 'utf-8');
+    const parsed = JSON.parse(raw) as { version?: string };
+    if (typeof parsed.version === 'string' && parsed.version.length > 0) {
+      return parsed.version;
+    }
+  } catch {
+    // Fall back to a safe default when package metadata is unavailable.
+  }
+  return '0.0.0';
+}
 
 function summarizeUsage(summary: UsageSummary) {
   const errors: string[] = [];
@@ -163,13 +182,18 @@ function buildMonthlyGroupedSummary(dateRange: DateRange, byDay: Map<string, Usa
   };
 }
 
-function emitSyncNotes(warnings: string[], reminder: string | undefined, asJson: boolean): void {
+function emitSyncNotes(
+  warnings: string[],
+  reminder: string | undefined,
+  machineReadable: boolean,
+  quiet = false,
+): void {
   for (const warning of warnings) {
     console.error(`Sync warning: ${warning}`);
   }
-  if (!reminder) return;
+  if (!reminder || quiet) return;
 
-  if (asJson) {
+  if (machineReadable) {
     console.error(reminder);
   } else {
     console.log(`  ${reminder}`);
@@ -192,10 +216,17 @@ async function runSummaryCommand(dateRange: DateRange, opts: GlobalOpts) {
 
   if (opts.json) {
     console.log(formatJSON(result.summary));
+  } else if (opts.plain) {
+    console.log(formatPlain(result.summary));
   } else {
     console.log(formatTable(result.summary));
   }
-  emitSyncNotes(result.warnings, result.reminder, Boolean(opts.json));
+  emitSyncNotes(
+    result.warnings,
+    result.reminder,
+    Boolean(opts.json || opts.plain),
+    Boolean(opts.quiet),
+  );
 }
 
 async function runGroupedCommand(dateRange: DateRange, opts: GlobalOpts, mode: 'daily' | 'monthly') {
@@ -208,10 +239,17 @@ async function runGroupedCommand(dateRange: DateRange, opts: GlobalOpts, mode: '
 
   if (opts.json) {
     console.log(formatGroupedJSON(grouped));
+  } else if (opts.plain) {
+    console.log(formatGroupedPlain(grouped, mode));
   } else {
     console.log(formatGroupedTable(grouped, mode === 'daily' ? 'Date' : 'Month'));
   }
-  emitSyncNotes(result.warnings, result.reminder, Boolean(opts.json));
+  emitSyncNotes(
+    result.warnings,
+    result.reminder,
+    Boolean(opts.json || opts.plain),
+    Boolean(opts.quiet),
+  );
 }
 
 export function createProgram(): Command {
@@ -220,16 +258,37 @@ export function createProgram(): Command {
   program
     .name('howvibe')
     .description('Track AI coding tool token usage and costs')
-    .version('0.1.0')
-    .option('--json', 'Output as JSON')
+    .version(readPackageVersion())
+    .addOption(new Option('--json', 'Output as JSON').conflicts('plain'))
+    .addOption(new Option('--plain', 'Output as line-based plain text').conflicts('json'))
+    .option('-q, --quiet', 'Suppress non-essential output')
+    .option('--no-input', 'Disable interactive prompts/login flow')
+    .option('--no-color', 'Disable colored output')
     .option('--provider <name>', 'Only show a specific provider (claude-code, codex, cursor, openrouter)')
     .option('--source <source>', 'Usage source (auto, web, cli, oauth)')
     .option('--since <date>', 'Start date (YYYY-MM-DD)')
     .option('--until <date>', 'End date (YYYY-MM-DD)');
 
+  program.addHelpCommand('help [command]', 'Display help for command');
+  program.showHelpAfterError('\nRun "howvibe --help" for usage.');
+  program.addHelpText(
+    'after',
+    [
+      '',
+      'Examples:',
+      '  howvibe today',
+      '  howvibe --provider codex --since 2026-03-01 --until 2026-03-07',
+      '  howvibe daily --since 2026-02-01 --until 2026-02-28 --json',
+      '  howvibe monthly --plain',
+      '  howvibe sync enable',
+      '  howvibe --source web monthly',
+      '',
+    ].join('\n'),
+  );
+
   // No subcommand and no options → show help
   program.action(async (opts: GlobalOpts) => {
-    if (!opts.json && !opts.provider && !opts.source && !opts.since && !opts.until) {
+    if (!opts.json && !opts.plain && !opts.provider && !opts.source && !opts.since && !opts.until) {
       program.help();
       return;
     }
@@ -269,15 +328,21 @@ export function createProgram(): Command {
     .command('enable')
     .description('Authorize with GitHub and enable automatic sync')
     .action(async () => {
+      const opts = program.opts<GlobalOpts>();
+      const quiet = Boolean(opts.quiet);
+      const noInput = opts.input === false || !process.stdin.isTTY;
       const config = await loadConfig();
       const providers = getProviders();
-      console.log('Starting sync setup. This may take a while on first run...');
+      if (!quiet) {
+        console.log('Starting sync setup. This may take a while on first run...');
+      }
       const enableResult = await enableSync(
         { ...config, source: 'auto' },
         providers,
         {},
         {
-          onProgress: (message) => {
+          noInput,
+          onProgress: quiet ? undefined : (message) => {
             console.log(`  - ${message}`);
           },
         },
@@ -287,10 +352,12 @@ export function createProgram(): Command {
         sync: enableResult.config.sync,
       });
 
-      console.log('Sync enabled.');
-      console.log(`Gist: ${enableResult.gistId}`);
-      console.log(`Machine ID: ${enableResult.machineId}`);
-      console.log(`Initial backfill: last ${enableResult.bootstrapDays} days`);
+      if (!quiet) {
+        console.log('Sync enabled.');
+        console.log(`Gist: ${enableResult.gistId}`);
+        console.log(`Machine ID: ${enableResult.machineId}`);
+        console.log(`Initial backfill: last ${enableResult.bootstrapDays} days`);
+      }
 
       for (const warning of enableResult.warnings) {
         console.error(`Sync warning: ${warning}`);
@@ -301,10 +368,13 @@ export function createProgram(): Command {
     .command('disable')
     .description('Disable automatic sync')
     .action(async () => {
+      const opts = program.opts<GlobalOpts>();
       const config = await loadConfig();
       const next = disableSync(config);
       await saveConfig(next);
-      console.log('Sync disabled.');
+      if (!opts.quiet) {
+        console.log('Sync disabled.');
+      }
     });
 
   return program;
