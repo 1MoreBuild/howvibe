@@ -686,6 +686,61 @@ describe('sync engine', () => {
     expect(uploadedDayOutsideDefaultRepair).toBe(true);
   });
 
+  it('skips full history backfill when skipHistoryRepair is enabled', async () => {
+    const machineId = 'macbook-1';
+    const today = '2026-03-05';
+    const todayFile = daySnapshotFilename(today, machineId);
+    const remoteTodayEmpty = createDaySnapshot(
+      today,
+      machineId,
+      {
+        period: { since: today, until: today },
+        providers: [],
+        totalCostUSD: 0,
+      },
+      new Date('2026-03-05T08:00:00.000Z'),
+    );
+    const fake = new FakeGistClient({
+      [todayFile]: { content: JSON.stringify(remoteTodayEmpty), raw_url: `raw://${todayFile}#1` },
+    });
+
+    await aggregateWithAutoSync(
+      { since: new Date(`${today}T00:00:00.000Z`), until: new Date(`${today}T23:59:59.999Z`) },
+      [providerWithDailyInput('codex', {
+        '2026-03-01': 11,
+        '2026-03-02': 12,
+        '2026-03-03': 13,
+        '2026-03-04': 14,
+        '2026-03-05': 15,
+      })],
+      {
+        sync: {
+          enabled: true,
+          provider: 'github_gist',
+          gistId: 'gist-1',
+          machineId,
+          bootstrapDays: 5,
+        },
+      },
+      {
+        ensureGhInstalled: async () => {},
+        getGhToken: async () => 'token',
+        loginGhWithGistScope: async () => {},
+        createGistClient: () => fake as unknown as GistClient,
+        now: () => new Date(`${today}T12:00:00.000Z`),
+      },
+      {
+        skipHistoryRepair: true,
+      },
+    );
+
+    const dayOutsideQuery = daySnapshotFilename('2026-03-03', machineId);
+    const uploadedOutsideQuery = fake.patchCalls.some((call) =>
+      Object.prototype.hasOwnProperty.call(call, dayOutsideQuery),
+    );
+    expect(uploadedOutsideQuery).toBe(false);
+  });
+
   it('loads remote history before full backfill uploads to avoid overwriting richer snapshots', async () => {
     const machineId = 'macbook-1';
     const today = '2026-03-05';

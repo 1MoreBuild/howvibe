@@ -495,10 +495,11 @@ export async function aggregateWithAutoSync(
   providers: UsageProvider[],
   config: HowvibeConfig,
   depsOverride: Partial<SyncDependencies> = {},
-  options: { requireDaily?: boolean } = {},
+  options: { requireDaily?: boolean; skipHistoryRepair?: boolean } = {},
 ): Promise<SyncRunResult> {
   const deps: SyncDependencies = { ...DEFAULT_DEPS, ...depsOverride };
   const requireDaily = options.requireDaily ?? false;
+  const skipHistoryRepair = options.skipHistoryRepair ?? false;
   const now = deps.now();
   const queryLabels = buildDateLabelsInRange(dateRange.since, dateRange.until);
   const today = todayLabel(now);
@@ -510,7 +511,7 @@ export async function aggregateWithAutoSync(
 
   const syncReady = isSyncEnabled(config) && Boolean(config.sync?.gistId) && Boolean(config.sync?.machineId);
   const state = syncReady ? await loadSyncState() : createEmptySyncState();
-  const repairLabels = syncReady
+  const repairLabels = syncReady && !skipHistoryRepair
     ? nextRepairLabels(now, Math.max(1, config.sync?.bootstrapDays ?? DEFAULT_SYNC_BOOTSTRAP_DAYS), state)
     : [];
   if (repairLabels.length > 0) {
@@ -592,7 +593,7 @@ export async function aggregateWithAutoSync(
   }
 
   let fullHistoryLabels: string[] = [];
-  if (forceFullHistoryBackfill) {
+  if (forceFullHistoryBackfill && !skipHistoryRepair) {
     fullHistoryLabels = buildBootstrapLabels(
       Math.max(1, config.sync?.bootstrapDays ?? DEFAULT_SYNC_BOOTSTRAP_DAYS),
       now,
