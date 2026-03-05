@@ -406,6 +406,41 @@ describe('sync engine', () => {
     expect(result.syncMeta.reason).toContain('gh auth token');
   });
 
+  it('reports uploadedSnapshots as 0 when upload patch fails', async () => {
+    class FailingPatchGistClient extends FakeGistClient {
+      override async patchGist(_id: string, files: Record<string, { content: string } | null>) {
+        this.patchCalls.push(files as Record<string, { content: string }>);
+        throw new Error('network down');
+      }
+    }
+
+    const fake = new FailingPatchGistClient();
+    const result = await aggregateWithAutoSync(
+      { since: new Date('2026-03-02T00:00:00.000Z'), until: new Date('2026-03-02T23:59:59.999Z') },
+      [providerWithDailyInput('codex', { '2026-03-02': 42 })],
+      {
+        sync: {
+          enabled: true,
+          provider: 'github_gist',
+          gistId: 'gist-1',
+          machineId: 'macbook-1',
+          bootstrapDays: 90,
+        },
+      },
+      {
+        ensureGhInstalled: async () => {},
+        getGhToken: async () => 'token',
+        loginGhWithGistScope: async () => {},
+        createGistClient: () => fake as unknown as GistClient,
+        now: () => new Date('2026-03-02T12:00:00.000Z'),
+      },
+    );
+
+    expect(result.warnings.some((warning) => warning.includes('Sync upload skipped'))).toBe(true);
+    expect(result.syncMeta.status).toBe('active');
+    expect(result.syncMeta.uploadedSnapshots).toBe(0);
+  });
+
   it('uses single-pass aggregation when sync is disabled', async () => {
     const getUsage = vi.fn(async () => ({
       provider: 'codex' as const,

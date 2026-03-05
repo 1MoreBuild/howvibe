@@ -744,6 +744,7 @@ export async function aggregateWithAutoSync(
   const uploadLabels = [...new Set([today, ...queryLabels, ...repairLabels, ...fullHistoryLabels])];
   const filesToUpload: Record<string, { content: string }> = {};
   const pendingSnapshots = new Map<string, DaySnapshot>();
+  let uploadedSnapshots = 0;
 
   for (const label of uploadLabels) {
     const summary = localDaily.get(label);
@@ -769,6 +770,7 @@ export async function aggregateWithAutoSync(
         state.localDigests[filename] = snapshot.digest;
         await writeCachedSnapshot(filename, snapshot);
       }
+      uploadedSnapshots = pendingSnapshots.size;
     } catch (err) {
       warnings.push(`Sync upload skipped: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -821,7 +823,7 @@ export async function aggregateWithAutoSync(
       mergedSnapshots,
       mergedMachines: machines.length,
       machines,
-      uploadedSnapshots: Object.keys(filesToUpload).length,
+      uploadedSnapshots,
     }),
   };
 }
