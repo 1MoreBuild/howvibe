@@ -93,4 +93,57 @@ describe('plain formatter', () => {
       'total\tdaily\tall\t40\t7\t2\t4\t1\t54\t0.005600\t',
     );
   });
+
+  it('includes sync_meta row for summary when provided', () => {
+    const summary: UsageSummary = {
+      period: { since: '2026-03-01', until: '2026-03-01' },
+      providers: [],
+      totalCostUSD: 0,
+    };
+
+    const output = formatPlain(summary, {
+      status: 'disabled',
+      enabled: false,
+      applied: false,
+      reason: 'Sync is disabled',
+      queryDays: 1,
+      mergedSnapshots: 0,
+      mergedMachines: 0,
+      machines: [],
+      uploadedSnapshots: 0,
+      accountWideProviders: [],
+    });
+
+    const lines = output.split('\n');
+    const syncLine = lines.find((line) => line.startsWith('sync_meta\t'));
+    expect(syncLine).toBeTruthy();
+    expect(syncLine).toContain('\tdisabled\t');
+    expect(syncLine).toContain('"status":"disabled"');
+  });
+
+  it('includes sync_meta row for grouped output when provided', () => {
+    const grouped: GroupedUsageSummary = {
+      title: 'Daily Report',
+      rows: [],
+      errors: [],
+    };
+
+    const output = formatGroupedPlain(grouped, 'monthly', {
+      status: 'active',
+      enabled: true,
+      applied: true,
+      queryDays: 30,
+      mergedSnapshots: 60,
+      mergedMachines: 2,
+      machines: [{ id: 'm1', snapshotDays: 30 }, { id: 'm2', snapshotDays: 30 }],
+      uploadedSnapshots: 1,
+      accountWideProviders: ['cursor'],
+    });
+
+    const lines = output.split('\n');
+    const syncLine = lines.find((line) => line.startsWith('sync_meta\t'));
+    expect(syncLine).toBeTruthy();
+    expect(syncLine).toContain('\tactive\t');
+    expect(syncLine).toContain('"mergedMachines":2');
+  });
 });

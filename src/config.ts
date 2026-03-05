@@ -9,6 +9,7 @@ export type SyncSettings = {
   enabled?: boolean;
   provider?: 'github_gist';
   gistId?: string;
+  machineName?: string;
   machineId?: string;
   bootstrapDays?: number;
 };
