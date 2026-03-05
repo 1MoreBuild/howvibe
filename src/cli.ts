@@ -8,6 +8,7 @@ import { formatTable } from './formatters/table.js';
 import { formatJSON } from './formatters/json.js';
 import { formatGroupedTable, formatGroupedJSON } from './formatters/grouped-table.js';
 import { formatPlain, formatGroupedPlain } from './formatters/plain.js';
+import { maybeNotifyUpdate } from './update-notifier.js';
 import type { DateRange, GroupedUsageSummary, UsageSummary } from './types.js';
 
 type GlobalOpts = {
@@ -239,6 +240,7 @@ async function resolveConfig(opts: GlobalOpts): Promise<HowvibeConfig> {
 }
 
 async function runSummaryCommand(dateRange: DateRange, opts: GlobalOpts) {
+  const currentVersion = readPackageVersion();
   const config = await resolveConfig(opts);
   const providers = getProviders(opts.provider, config.source ?? 'auto');
   const result = await withProgress(opts, 'collecting usage data', async () =>
@@ -258,9 +260,14 @@ async function runSummaryCommand(dateRange: DateRange, opts: GlobalOpts) {
     Boolean(opts.json || opts.plain),
     Boolean(opts.quiet),
   );
+  await maybeNotifyUpdate(currentVersion, {
+    quiet: Boolean(opts.quiet),
+    machineReadable: Boolean(opts.json || opts.plain),
+  });
 }
 
 async function runGroupedCommand(dateRange: DateRange, opts: GlobalOpts, mode: 'daily' | 'monthly') {
+  const currentVersion = readPackageVersion();
   const config = await resolveConfig(opts);
   const providers = getProviders(opts.provider, config.source ?? 'auto');
   const result = await withProgress(opts, 'collecting usage data', async () =>
@@ -289,6 +296,10 @@ async function runGroupedCommand(dateRange: DateRange, opts: GlobalOpts, mode: '
     Boolean(opts.json || opts.plain),
     Boolean(opts.quiet),
   );
+  await maybeNotifyUpdate(currentVersion, {
+    quiet: Boolean(opts.quiet),
+    machineReadable: Boolean(opts.json || opts.plain),
+  });
 }
 
 export function createProgram(): Command {
@@ -367,6 +378,7 @@ export function createProgram(): Command {
     .command('enable')
     .description('Authorize with GitHub and enable automatic sync')
     .action(async () => {
+      const currentVersion = readPackageVersion();
       const opts = program.opts<GlobalOpts>();
       const quiet = Boolean(opts.quiet);
       const noInput = opts.input === false || !process.stdin.isTTY;
@@ -401,12 +413,17 @@ export function createProgram(): Command {
       for (const warning of enableResult.warnings) {
         console.error(`Sync warning: ${warning}`);
       }
+
+      await maybeNotifyUpdate(currentVersion, {
+        quiet,
+      });
     });
 
   sync
     .command('disable')
     .description('Disable automatic sync')
     .action(async () => {
+      const currentVersion = readPackageVersion();
       const opts = program.opts<GlobalOpts>();
       const config = await loadConfig();
       const next = disableSync(config);
@@ -414,6 +431,10 @@ export function createProgram(): Command {
       if (!opts.quiet) {
         console.log('Sync disabled.');
       }
+
+      await maybeNotifyUpdate(currentVersion, {
+        quiet: Boolean(opts.quiet),
+      });
     });
 
   return program;

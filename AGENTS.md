@@ -9,3 +9,9 @@ For release-related changes, follow this sequence by default:
 3. Fix all confirmed review issues and push updates.
 4. Merge the PR after review issues are resolved.
 5. Publish a new npm release version.
+
+## Language Policy
+
+- Keep all repository content in English.
+- Keep all user-facing CLI messages in English.
+- Do not add non-English text unless the user explicitly requests it for that task.
