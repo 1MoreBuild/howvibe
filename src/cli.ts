@@ -22,6 +22,35 @@ type GlobalOpts = {
   until?: string;
 };
 
+async function withProgress<T>(
+  opts: GlobalOpts,
+  label: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  if (opts.quiet || !process.stderr.isTTY) {
+    return work();
+  }
+
+  let shown = false;
+  let success = false;
+  const timer = setTimeout(() => {
+    shown = true;
+    process.stderr.write(`howvibe: ${label}...\n`);
+  }, 800);
+  timer.unref();
+
+  try {
+    const result = await work();
+    success = true;
+    return result;
+  } finally {
+    clearTimeout(timer);
+    if (shown) {
+      process.stderr.write(`howvibe: ${success ? 'done' : 'failed'}.\n`);
+    }
+  }
+}
+
 function readPackageVersion(): string {
   try {
     const raw = readFileSync(new URL('../package.json', import.meta.url), 'utf-8');
@@ -212,7 +241,9 @@ async function resolveConfig(opts: GlobalOpts): Promise<HowvibeConfig> {
 async function runSummaryCommand(dateRange: DateRange, opts: GlobalOpts) {
   const config = await resolveConfig(opts);
   const providers = getProviders(opts.provider, config.source ?? 'auto');
-  const result = await aggregateWithAutoSync(dateRange, providers, config);
+  const result = await withProgress(opts, 'collecting usage data', async () =>
+    aggregateWithAutoSync(dateRange, providers, config, {}, { skipHistoryRepair: true }),
+  );
 
   if (opts.json) {
     console.log(formatJSON(result.summary));
@@ -232,7 +263,15 @@ async function runSummaryCommand(dateRange: DateRange, opts: GlobalOpts) {
 async function runGroupedCommand(dateRange: DateRange, opts: GlobalOpts, mode: 'daily' | 'monthly') {
   const config = await resolveConfig(opts);
   const providers = getProviders(opts.provider, config.source ?? 'auto');
-  const result = await aggregateWithAutoSync(dateRange, providers, config, {}, { requireDaily: true });
+  const result = await withProgress(opts, 'collecting usage data', async () =>
+    aggregateWithAutoSync(
+      dateRange,
+      providers,
+      config,
+      {},
+      { requireDaily: true, skipHistoryRepair: true },
+    ),
+  );
   const grouped = mode === 'daily'
     ? buildDailyGroupedSummary(dateRange, result.daily)
     : buildMonthlyGroupedSummary(dateRange, result.daily);
