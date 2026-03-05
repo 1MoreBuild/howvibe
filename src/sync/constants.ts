@@ -6,4 +6,4 @@ export const HOWVIBE_SYNC_DAY_FILE_SUFFIX = '.json';
 export const HOWVIBE_SYNC_SCHEMA_VERSION = 1;
 
 export const SYNC_REMINDER =
-  '已开启 Sync，可在其他机器执行 howvibe 获取更完整结果。';
+  'Sync is enabled. Run "howvibe" on your other machines for more complete results.';

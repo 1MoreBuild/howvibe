@@ -102,6 +102,11 @@ Global options:
 - `--since <YYYY-MM-DD>`
 - `--until <YYYY-MM-DD>`
 
+Version update reminder:
+
+- howvibe checks npm latest version periodically and prints a reminder when a newer version is available.
+- install update with `npm i -g howvibe@latest`
+
 ## Providers and Sources
 
 Supported source matrix:
