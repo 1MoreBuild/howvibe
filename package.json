@@ -1,6 +1,6 @@
 {
   "name": "howvibe",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "CLI tool to track AI coding tool token usage and costs",
   "type": "module",
   "bin": {
