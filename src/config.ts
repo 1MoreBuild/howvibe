@@ -59,8 +59,8 @@ export async function loadConfig(): Promise<HowvibeConfig> {
 
 export async function saveConfig(config: HowvibeConfig): Promise<void> {
   const configPath = getHowvibeConfigPath();
-  await mkdir(getHowvibeDir(), { recursive: true });
-  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+  await mkdir(getHowvibeDir(), { recursive: true, mode: 0o700 });
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
   cachedConfig = config;
 }
 

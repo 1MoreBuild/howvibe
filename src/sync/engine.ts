@@ -25,7 +25,6 @@ import {
 import {
   createEmptySyncState,
   loadSyncState,
-  markSyncedDays,
   readCachedSnapshot,
   saveSyncState,
   writeCachedSnapshot,
@@ -46,7 +45,7 @@ type EnableSyncOptions = {
 };
 
 const HISTORY_REPAIR_BATCH_DAYS = 3;
-const FLOAT_EPSILON = 1e-9;
+const FLOAT_EPSILON = 1e-6;
 
 const DEFAULT_DEPS: SyncDependencies = {
   ensureGhInstalled,
@@ -438,7 +437,6 @@ export async function enableSync(
 
     filesToUpload[filename] = { content: JSON.stringify(snapshot, null, 2) };
     state.localDigests[filename] = snapshot.digest;
-    markSyncedDays(state, label, snapshot.providers.map((provider) => provider.provider));
     await writeCachedSnapshot(filename, snapshot);
   }
 
@@ -661,7 +659,6 @@ export async function aggregateWithAutoSync(
           state.remoteFileVersions[filename] = latestFile.raw_url;
         }
         state.localDigests[filename] = snapshot.digest;
-        markSyncedDays(state, snapshot.date, snapshot.providers.map((provider) => provider.provider));
         await writeCachedSnapshot(filename, snapshot);
       }
     } catch (err) {

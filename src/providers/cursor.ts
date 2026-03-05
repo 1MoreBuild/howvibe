@@ -69,8 +69,9 @@ export class CursorProvider implements UsageProvider {
     const allEvents: CursorUsageEvent[] = [];
     let page = 1;
     const pageSize = 100;
+    const maxPages = 100; // Safety limit: 10,000 events max
 
-    while (true) {
+    while (page <= maxPages) {
       const res = await fetch('https://cursor.com/api/dashboard/get-filtered-usage-events', {
         method: 'POST',
         headers: {
@@ -89,7 +90,7 @@ export class CursorProvider implements UsageProvider {
           models: [],
           totalCostUSD: 0,
           dataSource: 'api',
-          errors: [`Cursor API error ${res.status}: ${text}`],
+          errors: [`Cursor API error ${res.status}: ${text.slice(0, 200)}`],
         };
       }
 
@@ -100,6 +101,12 @@ export class CursorProvider implements UsageProvider {
       const total = body.totalUsageEventsCount ?? 0;
       if (page * pageSize >= total || events.length === 0) break;
       page++;
+    }
+
+    const errors: string[] = [];
+    if (page > maxPages) {
+      const fetched = allEvents.length;
+      errors.push(`Cursor: pagination limit reached — fetched ${fetched.toLocaleString()} of potentially more events. Results may be incomplete.`);
     }
 
     const records: ModelUsageRecord[] = allEvents
@@ -125,6 +132,7 @@ export class CursorProvider implements UsageProvider {
       models: merged,
       totalCostUSD,
       dataSource: 'api',
+      errors: errors.length > 0 ? errors : undefined,
     };
   }
 }

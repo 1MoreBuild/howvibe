@@ -105,7 +105,7 @@ export class CodexProvider implements UsageProvider {
         const content = await readFile(file, 'utf-8');
         const lines = content.split(/\r?\n/);
 
-        let currentModel = 'gpt-5';
+        let currentModel = 'unknown';
         let previousTotals: RawUsage | null = null;
 
         for (const line of lines) {

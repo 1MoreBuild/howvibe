@@ -56,6 +56,8 @@ export function getModelPricing(model: string): ModelPricing | undefined {
   return undefined;
 }
 
+const warnedModels = new Set<string>();
+
 export function calculateCost(
   model: string,
   inputTokens: number,
@@ -64,7 +66,13 @@ export function calculateCost(
   cacheCreationTokens: number,
 ): number {
   const pricing = getModelPricing(model);
-  if (!pricing) return 0;
+  if (!pricing) {
+    if (!warnedModels.has(model) && model !== 'unknown' && model !== '<synthetic>') {
+      warnedModels.add(model);
+      process.stderr.write(`Warning: unknown model "${model}" — cost will be $0.00\n`);
+    }
+    return 0;
+  }
 
   return (
     (inputTokens * pricing.input) / 1_000_000 +
