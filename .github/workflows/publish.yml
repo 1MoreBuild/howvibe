@@ -1,0 +1,96 @@
+name: Publish Package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      npm_tag:
+        description: npm dist-tag for this publish
+        required: true
+        default: latest
+        type: choice
+        options:
+          - latest
+          - next
+      dry_run:
+        description: Run checks and npm publish --dry-run only
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm-publish
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate release tag matches package version
+        if: github.event_name == 'release'
+        run: |
+          PKG_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          RELEASE_TAG="${GITHUB_REF_NAME#v}"
+
+          if [ "$PKG_VERSION" != "$RELEASE_TAG" ]; then
+            echo "package.json version ($PKG_VERSION) does not match release tag ($GITHUB_REF_NAME)"
+            exit 1
+          fi
+
+      - name: Ensure version is not already published
+        run: |
+          PKG_NAME="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).name")"
+          PKG_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+
+          if npm view "${PKG_NAME}@${PKG_VERSION}" version >/dev/null 2>&1; then
+            echo "${PKG_NAME}@${PKG_VERSION} is already published"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm run test -- --passWithNoTests
+
+      - name: Verify package contents
+        run: npm pack --dry-run
+
+      - name: Resolve publish tag
+        id: publish_tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.npm_tag }}"
+          elif [ "${{ github.event.release.prerelease }}" = "true" ]; then
+            TAG="next"
+          else
+            TAG="latest"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Publish dry run
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true'
+        run: npm publish --provenance --tag "${{ steps.publish_tag.outputs.tag }}" --dry-run
+
+      - name: Publish package
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.dry_run != 'true'
+        run: npm publish --provenance --tag "${{ steps.publish_tag.outputs.tag }}"
